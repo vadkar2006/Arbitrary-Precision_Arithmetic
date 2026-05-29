@@ -20,7 +20,7 @@ class Quotient_Number {
 
 
 public:
-    static void Changing_Length_Fractional_Output(long long i){
+    static void Set_Precision(long long i){
         if (i > 0)
             fractional_part_output_length = i;
     }
@@ -37,7 +37,7 @@ public:
     Quotient_Number(Int_Number&& u1, Int_Number&& u2, bool plus);
     
     
-    void Irreducible_Fraction();
+    void Make_Irreducible_Fraction();
 
 
     int operator <=> (const Quotient_Number& Q) const;

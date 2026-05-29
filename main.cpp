@@ -17,6 +17,7 @@ void test_constructors_and_output() {
     Int_Number c(-9876543210LL);
     Int_Number d("12345678901234567890");
     
+    b.All_Print();
     std::cout << "a = " << a << std::endl;
     std::cout << "b = " << b << std::endl;
     std::cout << "c = " << c << std::endl;
@@ -147,7 +148,7 @@ void test_shifts() {
 void test_quotient_number() {
     std::cout << "[TEST 7] Quotient_Number (rational)" << std::endl;
     
-    Quotient_Number::Changing_Length_Fractional_Output(10);
+    Quotient_Number::Set_Precision(10);
     
     Int_Number up(1);
     Int_Number down(3);
@@ -255,6 +256,8 @@ void test_quotient_operator() {
     
     std::cout << " PASSED\n" << std::endl;
 }
+
+
 
 int main() {
     std::cout << "========== STARTING TESTS ==========\n" << std::endl;

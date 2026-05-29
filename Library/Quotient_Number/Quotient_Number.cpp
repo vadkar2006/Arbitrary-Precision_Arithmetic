@@ -55,7 +55,7 @@ Quotient_Number::Quotient_Number(Int_Number&& u1, Int_Number&& u2, bool plus): u
 
 
 
-void Quotient_Number::Irreducible_Fraction() {
+void Quotient_Number::Make_Irreducible_Fraction() {
     std::lock_guard<std::mutex> lock(guard);
 
     if((up == 0) && (doun == 0))
