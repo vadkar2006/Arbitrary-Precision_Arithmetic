@@ -7,9 +7,10 @@
 
 
 
-#include "Library/Service_Names/Service_Names.h"
-#include "Library/Error/Error.h"
-#include "Library/Thread_Pool/Thread_Pool.h"
+#include "../Service_Names/Service_Names.h"
+#include "../Error/Error.h"
+#include "../Thread_Pool/Thread_Pool.h"
+
 
 
 
@@ -27,6 +28,7 @@ class Int_Number {
     mutable std::mutex guard;
 
     static Thread_Pool thread_pool;
+    static Thread_Pool sub_thread_pool;
 
     static void Division_NOT_Bypass(Int_Number& R, Int_Number& Nu2, Int_Number& Q){
         if(R.len_num < Nu2.len_num)
@@ -73,7 +75,6 @@ class Int_Number {
     }
     friend std::ostream& operator<<(std::ostream& os, const Quotient_Number& Q);
     friend std::ofstream& operator<<(std::ofstream& of, const Quotient_Number& Q);
-
 
 
 
@@ -214,7 +215,161 @@ class Int_Number {
     void Multiplication_Bypass(const Int_Number& Nu);
     //В НЕЕ НЕЛЬЗЯ ПИХАТЬ ОДИН И ТОТ ЖЕ ОБЬЕКТ(ЧИСЛО)
 
+
+    template<class Mod>
+    static void __local_Mod__NTT_Transform(void** mas){
+        std::vector<int>* ve = static_cast<std::vector<int>*>(mas[0]);
+        bool* inversee = static_cast<bool*>(mas[1]);
+
+        NTT<Mod_Num_<Mod>>::transform(*ve, *inversee);
+    }
+    template<class Mod>
+    static void __local_Mod__NTT_Outward_Bypass_Paralel(void** mas){
+        void* mas_1[2];
+        void* mas_2[2];
+
+        bool false1 = false;
+
+        mas_1[0] = mas[1];
+        mas_2[0] = mas[2];
+        mas_1[1] = &false1;
+        mas_2[1] = &false1;
+
+        Task task1(&__local_Mod__NTT_Transform<Mod>, mas_1);
+        Task task2(&__local_Mod__NTT_Transform<Mod>, mas_2);
+
+        sub_thread_pool.Sending_To_Processing(&task1);
+        sub_thread_pool.Sending_To_Processing(&task2);
+
+
+        int* Power_2 = static_cast<int*>(mas[0]);
+
+        std::vector<int>* nu1 = static_cast<std::vector<int>*>(mas[1]);
+        std::vector<int>* nu2 = static_cast<std::vector<int>*>(mas[2]);
+
+        task1.Wait_Completed();
+        task2.Wait_Completed();
+
+        for (int i = 0; i < (1 << *Power_2); i++) 
+            (*nu1)[i] = (1LL * (*nu1)[i] * (*nu2)[i]) % Mod::MOD;
+        
+        NTT<Mod_Num_<Mod>>::transform(*nu1, true);
+    }
+    //Nu1_MOD1 Nu1_MOD2 Nu1_MOD3   start count   P1 P2 P3  M12 M123    inv_P1_mod_P2 inv_M12_mod_P3 inv_P1_mod_P3    ans
+    static void __local_CRT__3_Outward_Bypass(void** mas){ 
+        std::vector<int>* Nu1_MOD1 = static_cast<std::vector<int>*>(mas[0]);
+        std::vector<int>* Nu1_MOD2 = static_cast<std::vector<int>*>(mas[1]);
+        std::vector<int>* Nu1_MOD3 = static_cast<std::vector<int>*>(mas[2]);
+
+        long long int* start = static_cast<long long int*>(mas[3]);
+        long long int* count = static_cast<long long int*>(mas[4]);
+
+        Int_Number* P1 = static_cast<Int_Number*>(mas[5]);
+        Int_Number* P2 = static_cast<Int_Number*>(mas[6]);
+        Int_Number* P3 = static_cast<Int_Number*>(mas[7]);
+        Int_Number* M12 = static_cast<Int_Number*>(mas[8]);
+        Int_Number* M123 = static_cast<Int_Number*>(mas[9]);
+
+        long long int* inv_P1_mod_P2 = static_cast<long long int*>(mas[10]);
+        long long int* inv_M12_mod_P3 = static_cast<long long int*>(mas[11]);
+        long long int* inv_P1_mod_P3 = static_cast<long long int*>(mas[12]);
+
+        Int_Number* ans = static_cast<Int_Number*>(mas[13]);
+
+        for (long long int i = 0; i < *count; i++) {
+            long long int r1 = (*Nu1_MOD1)[i + *start];
+            long long int r2 = (*Nu1_MOD2)[i + *start];
+            long long int r3 = (*Nu1_MOD3)[i + *start];
+            
+
+            long long int diff2 = (r2 - r1) % Mod1004535809::MOD;
+            if (diff2 < 0) 
+                diff2 += Mod1004535809::MOD;
+            long long int t2 = (diff2 * *inv_P1_mod_P2) % Mod1004535809::MOD;
+            Int_Number X12 = Int_Number(r1) + Int_Number(t2) * (*P1);
+            
+
+            Int_Number X12_mod_P3_pred = X12 % (*P3);
+            long long int X12_mod_P3 = X12_mod_P3_pred.num[X12_mod_P3_pred.plt_tail];
+
+            long long int diff3 = (r3 - X12_mod_P3) % Mod469762049::MOD;
+            if (diff3 < 0) 
+                diff3 += Mod469762049::MOD;
+            long long int t3 = (diff3 * *inv_M12_mod_P3) % Mod469762049::MOD;
+            
+            Int_Number X = X12 + Int_Number(t3) * (*M12);
+            
+            ans -> Only_Add_With_Shift_Bypass(X, i);
+        }
+    }
+    //Nu1_MOD1 Nu1_MOD2 Nu1_MOD3 Nu1_MOD4   start count   P1 P2 P3 P4  M12 M123 M1234    inv_P1_mod_P2 inv_M12_mod_P3 inv_M123_mod_P4    ans
+    static void __local_CRT__4_Outward_Bypass(void** mas){ 
+        std::vector<int>* Nu1_MOD1 = static_cast<std::vector<int>*>(mas[0]);
+        std::vector<int>* Nu1_MOD2 = static_cast<std::vector<int>*>(mas[1]);
+        std::vector<int>* Nu1_MOD3 = static_cast<std::vector<int>*>(mas[2]);
+        std::vector<int>* Nu1_MOD4 = static_cast<std::vector<int>*>(mas[3]);
+
+        long long int* start = static_cast<long long int*>(mas[4]);
+        long long int* count = static_cast<long long int*>(mas[5]);
+
+        Int_Number* P1 = static_cast<Int_Number*>(mas[6]);
+        Int_Number* P2 = static_cast<Int_Number*>(mas[7]);
+        Int_Number* P3 = static_cast<Int_Number*>(mas[8]);
+        Int_Number* P4 = static_cast<Int_Number*>(mas[9]);
+        Int_Number* M12 = static_cast<Int_Number*>(mas[10]);
+        Int_Number* M123 = static_cast<Int_Number*>(mas[11]);
+        Int_Number* M1234 = static_cast<Int_Number*>(mas[12]);
+
+        long long int* inv_P1_mod_P2 = static_cast<long long int*>(mas[13]);
+        long long int* inv_M12_mod_P3 = static_cast<long long int*>(mas[14]);
+        long long int* inv_M123_mod_P4 = static_cast<long long int*>(mas[15]);
+
+        Int_Number* ans = static_cast<Int_Number*>(mas[16]);
+
+        for (long long int i = 0; i < *count; i++) {
+            long long int r1 = (*Nu1_MOD1)[i + *start];
+            long long int r2 = (*Nu1_MOD2)[i + *start];
+            long long int r3 = (*Nu1_MOD3)[i + *start];
+            long long int r4 = (*Nu1_MOD4)[i + *start];
+            
+
+            long long int diff2 = (r2 - r1) % Mod1004535809::MOD;
+            if (diff2 < 0) 
+                diff2 += Mod1004535809::MOD;
+            long long int t2 = (diff2 * *inv_P1_mod_P2) % Mod1004535809::MOD;
+            Int_Number X12 = Int_Number(r1) + Int_Number(t2) * (*P1);
+            
+
+            Int_Number X12_mod_P3_pred = X12 % *P3;
+            long long int X12_mod_P3 = X12_mod_P3_pred.num[X12_mod_P3_pred.plt_tail];
+
+            long long int diff3 = (r3 - X12_mod_P3) % Mod469762049::MOD;
+            if (diff3 < 0) 
+                diff3 += Mod469762049::MOD;
+            long long int t3 = (diff3 * *inv_M12_mod_P3) % Mod469762049::MOD;
+            
+            Int_Number X123 = X12 + Int_Number(t3) * *M12;
+            
+
+            Int_Number X123_mod_P4_pred = X123 % *P4;
+            long long int X123_mod_P4 = X123_mod_P4_pred.num[X123_mod_P4_pred.plt_tail];
+
+            long long int diff4 = (r4 - X123_mod_P4) % Mod167772161::MOD;
+            if (diff4 < 0) 
+                diff4 += Mod167772161::MOD;
+            long long int t4 = (diff4 * *inv_M123_mod_P4) % Mod167772161::MOD;
+            
+            Int_Number X = X123 + Int_Number(t4) * *M123;
+            
+
+            ans -> Only_Add_With_Shift_Bypass(X, i);
+        }
+    }
+
     Int_Number Multiplication_NTT_Outward_Bypass(const Int_Number& Nu) const;
+    Int_Number Multiplication_NTT_Outward_Thread_Pool_Bypass(const Int_Number& Nu) const;
+    
+
 
 public:
     
@@ -233,6 +388,7 @@ public:
     void Relocation(int count = 3);
     bool Is_plus() const;
     int Length_Number() const;
+    int Last_Element_Get() const;
     friend Int_Number& Abs(Int_Number& Nu);
 
     std::string To_String() const;

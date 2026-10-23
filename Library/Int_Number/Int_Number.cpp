@@ -8,6 +8,7 @@
 
 
 Thread_Pool Int_Number::thread_pool;
+Thread_Pool Int_Number::sub_thread_pool;
 
 
 
@@ -558,7 +559,7 @@ void Int_Number::Subtract_In_Bypass_Paralel(const Int_Number& Nu){
             k++;
         }
 
-        while(num[ptr_head] == 0)
+        while((num[ptr_head] == 0) && (ptr_head > plt_tail))
             ptr_head--;
         
         len_num = 9 * (ptr_head - plt_tail) + Length_Int(num[ptr_head]);
@@ -676,7 +677,7 @@ void Int_Number::Subtract_In_Bypass_Paralel(const Int_Number& Nu){
         }
 
         ptr_head = plt_tail + Nu.ptr_head - Nu.plt_tail;
-        while(num[ptr_head] == 0)
+        while((num[ptr_head] == 0) && (ptr_head > plt_tail))
             ptr_head--;
         
         len_num = 9 * (ptr_head - plt_tail) + Length_Int(num[ptr_head]);
@@ -786,6 +787,8 @@ void Int_Number::Multiplication_Bypass(const Int_Number& Nu) {
 
     for(int i = Nu.plt_tail + 1; i <= Nu.ptr_head; i++)
         this -> Only_Add_With_Shift_Bypass(Nu_ptr * Nu.num[i], i - Nu.plt_tail);
+
+    sign_plus = sign_plus == Nu.sign_plus;
 }
 //В НЕЕ НЕЛЬЗЯ ПИХАТЬ ОДИН И ТОТ ЖЕ ОБЬЕКТ(ЧИСЛО)
 
@@ -828,63 +831,80 @@ Int_Number Int_Number::Multiplication_NTT_Outward_Bypass(const Int_Number& Nu) c
         std::vector<std::thread> threads;
 
         
-        threads.emplace_back(DispatchNTT<Mod998244353, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD1), std::ref(Nu2_MOD1));
-        threads.emplace_back(DispatchNTT<Mod1004535809, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD2), std::ref(Nu2_MOD2));
-        threads.emplace_back(DispatchNTT<Mod469762049, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD3), std::ref(Nu2_MOD3));
+        threads.emplace_back(PerformNTTMultiplication<Mod998244353>, power_2, std::ref(Nu1_MOD1), std::ref(Nu2_MOD1));
+        threads.emplace_back(PerformNTTMultiplication<Mod1004535809>, power_2, std::ref(Nu1_MOD2), std::ref(Nu2_MOD2));
+        threads.emplace_back(PerformNTTMultiplication<Mod469762049>, power_2, std::ref(Nu1_MOD3), std::ref(Nu2_MOD3));
 
         for(int i = 0; i < threads.size(); i++)
             threads[i].join();
         
         
-        static const Int_Number P1(Mod998244353::MOD);
-        static const Int_Number P2(Mod1004535809::MOD);
-        static const Int_Number P3(Mod469762049::MOD);
-        static const Int_Number M12 = P1 * P2;
-        static const Int_Number M123 = M12 * P3;
+        Int_Number P1(Mod998244353::MOD);
+        Int_Number P2(Mod1004535809::MOD);
+        Int_Number P3(Mod469762049::MOD);
+        Int_Number M12 = P1 * P2;
+        Int_Number M123 = M12 * P3;
         
-        static const long long int inv_P1_mod_P2 = NTT<Mod998244353, 6>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
-        static const long long int inv_M12_mod_P3 = NTT<Mod998244353, 6>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
-        static const long long int inv_P1_mod_P3 = NTT<Mod998244353, 6>::modpow(Mod998244353::MOD % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        long long int inv_P1_mod_P2 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
+        long long int inv_M12_mod_P3 = Mod_Num_<Mod998244353>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        long long int inv_P1_mod_P3 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
         
 
-        
         Int_Number FinalResult(ptr_head + Nu.ptr_head + (plt_tail + Nu.plt_tail)/20 - (plt_tail + Nu.plt_tail) + 3, (plt_tail + Nu.plt_tail)/20);
         FinalResult.sign_plus = this -> sign_plus == Nu.sign_plus;
 
-        
-        for (long long int i = 0; i < (1 << power_2); ++i) {
-            long long int r1 = Nu1_MOD1[i];
-            long long int r2 = Nu1_MOD2[i];
-            long long int r3 = Nu1_MOD3[i];
-            
 
 
-            long long int diff2 = (r2 - r1) % Mod1004535809::MOD;
-            if (diff2 < 0) 
-                diff2 += Mod1004535809::MOD;
-            long long int t2 = (diff2 * inv_P1_mod_P2) % Mod1004535809::MOD;
-            Int_Number X12 = Int_Number(r1) + Int_Number(t2) * P1;
-            
+        int count_thread_in_pool = thread_pool.Count_Worker();
 
-            Int_Number X12_mod_P3_pred = X12 % P3;
-            long long int X12_mod_P3 = X12_mod_P3_pred.num[X12_mod_P3_pred.plt_tail];
+        void* mas_task_data[count_thread_in_pool][14];
+        long long int mas_start_count[count_thread_in_pool][2];
+        Int_Number mas_int_number[count_thread_in_pool];
+        Task mas_task[count_thread_in_pool];
 
-            long long int diff3 = (r3 - X12_mod_P3) % Mod469762049::MOD;
-            if (diff3 < 0) 
-                diff3 += Mod469762049::MOD;
-            long long int t3 = (diff3 * inv_M12_mod_P3) % Mod469762049::MOD;
-            
-            Int_Number X = X12 + Int_Number(t3) * M12;
-            
+        int Block_to_task = (1 << power_2) / count_thread_in_pool;
+        int Block_to_task_over = (1 << power_2) % count_thread_in_pool;
 
-            FinalResult.Only_Add_With_Shift_Bypass(X, i);
+        for(int i = 0; i < Block_to_task_over; i++){
+            mas_start_count[i][0] = i * (Block_to_task + 1);
+            mas_start_count[i][1] = Block_to_task + 1;
         }
-        
-        /*
-        while (FinalResult.ptr_head > FinalResult.plt_tail && 
-            FinalResult.num[FinalResult.ptr_head] == 0) {
-            FinalResult.ptr_head--;
-        }*/
+        for(int i = 0; i < count_thread_in_pool - Block_to_task_over; i++){
+            mas_start_count[i + Block_to_task_over][0] = i * Block_to_task + Block_to_task_over * (Block_to_task + 1);
+            mas_start_count[i + Block_to_task_over][1] = Block_to_task;
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task_data[i][0] = &Nu1_MOD1;
+            mas_task_data[i][1] = &Nu1_MOD2;
+            mas_task_data[i][2] = &Nu1_MOD3;
+
+            mas_task_data[i][3] = &mas_start_count[i][0];
+            mas_task_data[i][4] = &mas_start_count[i][1];
+
+            mas_task_data[i][5] = &P1;
+            mas_task_data[i][6] = &P2;
+            mas_task_data[i][7] = &P3;
+            mas_task_data[i][8] = &M12;
+            mas_task_data[i][9] = &M123;
+
+            mas_task_data[i][10] = &inv_P1_mod_P2;
+            mas_task_data[i][11] = &inv_M12_mod_P3;
+            mas_task_data[i][12] = &inv_P1_mod_P3;
+
+            mas_task_data[i][13] = &mas_int_number[i];
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Move_To(Task(&__local_CRT__3_Outward_Bypass, mas_task_data[i]));
+            thread_pool.Sending_To_Processing(&mas_task[i]);
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Wait_Completed();
+            
+            FinalResult.Only_Add_With_Shift_Bypass(mas_int_number[i], mas_start_count[i][0]);
+        }
         
         return std::move(FinalResult);
     }
@@ -917,26 +937,26 @@ Int_Number Int_Number::Multiplication_NTT_Outward_Bypass(const Int_Number& Nu) c
 
         std::vector<std::thread> threads;
 
-        
-        threads.emplace_back(DispatchNTT<Mod998244353, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD1), std::ref(Nu2_MOD1));
-        threads.emplace_back(DispatchNTT<Mod1004535809, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD2), std::ref(Nu2_MOD2));
-        threads.emplace_back(DispatchNTT<Mod469762049, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD3), std::ref(Nu2_MOD3));
-        threads.emplace_back(DispatchNTT<Mod167772161, PerformNTTMultiplication>, power_2, std::ref(Nu1_MOD4), std::ref(Nu2_MOD4));
+        threads.emplace_back(PerformNTTMultiplication<Mod998244353>, power_2, std::ref(Nu1_MOD1), std::ref(Nu2_MOD1));
+        threads.emplace_back(PerformNTTMultiplication<Mod1004535809>, power_2, std::ref(Nu1_MOD2), std::ref(Nu2_MOD2));
+        threads.emplace_back(PerformNTTMultiplication<Mod469762049>, power_2, std::ref(Nu1_MOD3), std::ref(Nu2_MOD3));
+        threads.emplace_back(PerformNTTMultiplication<Mod167772161>, power_2, std::ref(Nu1_MOD4), std::ref(Nu2_MOD4));
+
 
         for(int i = 0; i < threads.size(); i++)
             threads[i].join();
         
-        static const Int_Number P1(Mod998244353::MOD);
-        static const Int_Number P2(Mod1004535809::MOD);
-        static const Int_Number P3(Mod469762049::MOD);
-        static const Int_Number P4(Mod167772161::MOD);
-        static const Int_Number M12 = P1 * P2;
-        static const Int_Number M123 = M12 * P3;
-        static const Int_Number M1234 = M123 * P4;
+        Int_Number P1(Mod998244353::MOD);
+        Int_Number P2(Mod1004535809::MOD);
+        Int_Number P3(Mod469762049::MOD);
+        Int_Number P4(Mod167772161::MOD);
+        Int_Number M12 = P1 * P2;
+        Int_Number M123 = M12 * P3;
+        Int_Number M1234 = M123 * P4;
         
-        static const long long int inv_P1_mod_P2 = NTT<Mod998244353, 6>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
-        static const long long int inv_M12_mod_P3 = NTT<Mod998244353, 6>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
-        static const long long int inv_M123_mod_P4 = NTT<Mod998244353, 6>::modpow(130839182, Mod167772161::MOD - 2, Mod167772161::MOD);
+        long long int inv_P1_mod_P2 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
+        long long int inv_M12_mod_P3 = Mod_Num_<Mod998244353>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        long long int inv_M123_mod_P4 = Mod_Num_<Mod998244353>::modpow(130839182, Mod167772161::MOD - 2, Mod167772161::MOD);
         //130839182 посчитано руками (переполнение)
 
         
@@ -944,44 +964,335 @@ Int_Number Int_Number::Multiplication_NTT_Outward_Bypass(const Int_Number& Nu) c
         FinalResult.sign_plus = this -> sign_plus == Nu.sign_plus;
 
         
-        for (long long int i = 0; i < (1 << power_2); ++i) {
-            long long int r1 = Nu1_MOD1[i];
-            long long int r2 = Nu1_MOD2[i];
-            long long int r3 = Nu1_MOD3[i];
-            long long int r4 = Nu1_MOD4[i];
+        int count_thread_in_pool = thread_pool.Count_Worker();
+
+        void* mas_task_data[count_thread_in_pool][17];
+        long long int mas_start_count[count_thread_in_pool][2];
+        Int_Number mas_int_number[count_thread_in_pool];
+        Task mas_task[count_thread_in_pool];
+
+        int Block_to_task = (1 << power_2) / count_thread_in_pool;
+        int Block_to_task_over = (1 << power_2) % count_thread_in_pool;
+
+        for(int i = 0; i < Block_to_task_over; i++){
+            mas_start_count[i][0] = i * (Block_to_task + 1);
+            mas_start_count[i][1] = Block_to_task + 1;
+        }
+        for(int i = 0; i < count_thread_in_pool - Block_to_task_over; i++){
+            mas_start_count[i][0] = i * Block_to_task + Block_to_task_over * (Block_to_task + 1);
+            mas_start_count[i][1] = Block_to_task;
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task_data[i][0] = &Nu1_MOD1;
+            mas_task_data[i][1] = &Nu1_MOD2;
+            mas_task_data[i][2] = &Nu1_MOD3;
+            mas_task_data[i][3] = &Nu1_MOD4;
+
+            mas_task_data[i][4] = &mas_start_count[i][0];
+            mas_task_data[i][5] = &mas_start_count[i][1];
+
+            mas_task_data[i][6] = &P1;
+            mas_task_data[i][7] = &P2;
+            mas_task_data[i][8] = &P3;
+            mas_task_data[i][9] = &P4;
+            mas_task_data[i][10] = &M12;
+            mas_task_data[i][11] = &M123;
+            mas_task_data[i][12] = &M1234;
+
+            mas_task_data[i][13] = &inv_P1_mod_P2;
+            mas_task_data[i][14] = &inv_M12_mod_P3;
+            mas_task_data[i][15] = &inv_M123_mod_P4;
+
+            mas_task_data[i][16] = &mas_int_number[i];
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Move_To(Task(&__local_CRT__4_Outward_Bypass, mas_task_data[i]));
+            thread_pool.Sending_To_Processing(&mas_task[i]);
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Wait_Completed();
             
+            FinalResult.Only_Add_With_Shift_Bypass(mas_int_number[i], mas_start_count[i][0]);
+        }
+        
+        return std::move(FinalResult);
+    }
+
+return Int_Number(0);
+}
+Int_Number Int_Number::Multiplication_NTT_Outward_Thread_Pool_Bypass(const Int_Number& Nu) const{
+    int count_modile = 3;
+
+    int power_2 = 6;
+
+    while((1 << power_2) < (len_num/9 + Nu.len_num/9 + 2))
+        power_2++;
+
+    if((1 << power_2) > 470000000)
+        count_modile = 4;
     
 
-            long long int diff2 = (r2 - r1) % Mod1004535809::MOD;
-            if (diff2 < 0) 
-                diff2 += Mod1004535809::MOD;
-            long long int t2 = (diff2 * inv_P1_mod_P2) % Mod1004535809::MOD;
-            Int_Number X12 = Int_Number(r1) + Int_Number(t2) * P1;
-            
 
-            Int_Number X12_mod_P3_pred = X12 % P3;
-            long long int X12_mod_P3 = X12_mod_P3_pred.num[X12_mod_P3_pred.plt_tail];
+    if(count_modile == 3){
+        std::vector<int> Nu1_MOD1((1 << power_2), 0);
+        std::vector<int> Nu1_MOD2((1 << power_2), 0);
+        std::vector<int> Nu1_MOD3((1 << power_2), 0);
 
-            long long int diff3 = (r3 - X12_mod_P3) % Mod469762049::MOD;
-            if (diff3 < 0) 
-                diff3 += Mod469762049::MOD;
-            long long int t3 = (diff3 * inv_M12_mod_P3) % Mod469762049::MOD;
-            
-            Int_Number X123 = X12 + Int_Number(t3) * M12;
-            
+        std::vector<int> Nu2_MOD1((1 << power_2), 0);
+        std::vector<int> Nu2_MOD2((1 << power_2), 0);
+        std::vector<int> Nu2_MOD3((1 << power_2), 0);
 
-            Int_Number X123_mod_P4_pred = X123 % P4;
-            long long int X123_mod_P4 = X123_mod_P4_pred.num[X123_mod_P4_pred.plt_tail];
 
-            long long int diff4 = (r4 - X123_mod_P4) % Mod167772161::MOD;
-            if (diff4 < 0) 
-                diff4 += Mod167772161::MOD;
-            long long int t4 = (diff4 * inv_M123_mod_P4) % Mod167772161::MOD;
-            
-            Int_Number X = X123 + Int_Number(t4) * M123;
-            
+        for(int i = 0; i <= ptr_head - plt_tail; i++){
+            Nu1_MOD1[i] = num[i + plt_tail];
+            Nu1_MOD2[i] = num[i + plt_tail];
+            Nu1_MOD3[i] = num[i + plt_tail];
+        }
 
-            FinalResult.Only_Add_With_Shift_Bypass(X, i);
+        for(int i = 0; i <= Nu.ptr_head - Nu.plt_tail; i++){
+            Nu2_MOD1[i] = Nu.num[i + Nu.plt_tail];
+            Nu2_MOD2[i] = Nu.num[i + Nu.plt_tail];
+            Nu2_MOD3[i] = Nu.num[i + Nu.plt_tail];
+        }
+
+        void* mas_1[3];
+        void* mas_2[3];
+        void* mas_3[3];
+
+        mas_1[0] = &power_2;
+        mas_2[0] = &power_2;
+        mas_3[0] = &power_2;
+
+        mas_1[1] = &Nu1_MOD1;
+        mas_2[1] = &Nu1_MOD2;
+        mas_3[1] = &Nu1_MOD3;
+
+        mas_1[2] = &Nu2_MOD1;
+        mas_2[2] = &Nu2_MOD2;
+        mas_3[2] = &Nu2_MOD3;
+
+        Task task1(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod998244353>, mas_1);
+        Task task2(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod1004535809>, mas_2);
+        Task task3(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod469762049>, mas_3);
+
+
+        thread_pool.Sending_To_Processing(&task1);
+        thread_pool.Sending_To_Processing(&task2);
+        thread_pool.Sending_To_Processing(&task3);
+
+        task1.Wait_Completed();
+        task2.Wait_Completed();
+        task3.Wait_Completed();
+
+        
+        
+        Int_Number P1(Mod998244353::MOD);
+        Int_Number P2(Mod1004535809::MOD);
+        Int_Number P3(Mod469762049::MOD);
+        Int_Number M12 = P1 * P2;
+        Int_Number M123 = M12 * P3;
+        
+        long long int inv_P1_mod_P2 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
+        long long int inv_M12_mod_P3 = Mod_Num_<Mod998244353>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        long long int inv_P1_mod_P3 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        
+
+        Int_Number FinalResult(ptr_head + Nu.ptr_head + (plt_tail + Nu.plt_tail)/20 - (plt_tail + Nu.plt_tail) + 3, (plt_tail + Nu.plt_tail)/20);
+        FinalResult.sign_plus = this -> sign_plus == Nu.sign_plus;
+
+
+
+        int count_thread_in_pool = thread_pool.Count_Worker();
+
+        void* mas_task_data[count_thread_in_pool][14];
+        long long int mas_start_count[count_thread_in_pool][2];
+        Int_Number mas_int_number[count_thread_in_pool];
+        Task mas_task[count_thread_in_pool];
+
+        int Block_to_task = (1 << power_2) / count_thread_in_pool;
+        int Block_to_task_over = (1 << power_2) % count_thread_in_pool;
+
+        for(int i = 0; i < Block_to_task_over; i++){
+            mas_start_count[i][0] = i * (Block_to_task + 1);
+            mas_start_count[i][1] = Block_to_task + 1;
+        }
+        for(int i = 0; i < count_thread_in_pool - Block_to_task_over; i++){
+            mas_start_count[i + Block_to_task_over][0] = i * Block_to_task + Block_to_task_over * (Block_to_task + 1);
+            mas_start_count[i + Block_to_task_over][1] = Block_to_task;
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task_data[i][0] = &Nu1_MOD1;
+            mas_task_data[i][1] = &Nu1_MOD2;
+            mas_task_data[i][2] = &Nu1_MOD3;
+
+            mas_task_data[i][3] = &mas_start_count[i][0];
+            mas_task_data[i][4] = &mas_start_count[i][1];
+
+            mas_task_data[i][5] = &P1;
+            mas_task_data[i][6] = &P2;
+            mas_task_data[i][7] = &P3;
+            mas_task_data[i][8] = &M12;
+            mas_task_data[i][9] = &M123;
+
+            mas_task_data[i][10] = &inv_P1_mod_P2;
+            mas_task_data[i][11] = &inv_M12_mod_P3;
+            mas_task_data[i][12] = &inv_P1_mod_P3;
+
+            mas_task_data[i][13] = &mas_int_number[i];
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Move_To(Task(&__local_CRT__3_Outward_Bypass, mas_task_data[i]));
+            thread_pool.Sending_To_Processing(&mas_task[i]);
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Wait_Completed();
+            
+            FinalResult.Only_Add_With_Shift_Bypass(mas_int_number[i], mas_start_count[i][0]);
+        }
+        
+        return std::move(FinalResult);
+    }
+
+    if(count_modile == 4){
+        std::vector<int> Nu1_MOD1((1 << power_2), 0);
+        std::vector<int> Nu1_MOD2((1 << power_2), 0);
+        std::vector<int> Nu1_MOD3((1 << power_2), 0);
+        std::vector<int> Nu1_MOD4((1 << power_2), 0);
+
+        std::vector<int> Nu2_MOD1((1 << power_2), 0);
+        std::vector<int> Nu2_MOD2((1 << power_2), 0);
+        std::vector<int> Nu2_MOD3((1 << power_2), 0);
+        std::vector<int> Nu2_MOD4((1 << power_2), 0);
+
+
+        for(int i = 0; i <= ptr_head - plt_tail; i++){
+            Nu1_MOD1[i] = num[i + plt_tail];
+            Nu1_MOD2[i] = num[i + plt_tail];
+            Nu1_MOD3[i] = num[i + plt_tail];
+            Nu1_MOD4[i] = num[i + plt_tail];
+        }
+
+        for(int i = 0; i <= Nu.ptr_head - Nu.plt_tail; i++){
+            Nu2_MOD1[i] = Nu.num[i + Nu.plt_tail];
+            Nu2_MOD2[i] = Nu.num[i + Nu.plt_tail];
+            Nu2_MOD3[i] = Nu.num[i + Nu.plt_tail];
+            Nu2_MOD4[i] = Nu.num[i + Nu.plt_tail];
+        }
+        void* mas_1[3];
+        void* mas_2[3];
+        void* mas_3[3];
+        void* mas_4[3];
+
+        mas_1[0] = &power_2;
+        mas_2[0] = &power_2;
+        mas_3[0] = &power_2;
+        mas_4[0] = &power_2;
+
+        mas_1[1] = &Nu1_MOD1;
+        mas_2[1] = &Nu1_MOD2;
+        mas_3[1] = &Nu1_MOD3;
+        mas_4[1] = &Nu1_MOD4;
+
+        mas_1[2] = &Nu2_MOD1;
+        mas_2[2] = &Nu2_MOD2;
+        mas_3[2] = &Nu2_MOD3;
+        mas_4[2] = &Nu2_MOD4;
+
+        Task task1(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod998244353>, mas_1);
+        Task task2(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod1004535809>, mas_2);
+        Task task3(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod469762049>, mas_3);
+        Task task4(&__local_Mod__NTT_Outward_Bypass_Paralel<Mod167772161>, mas_4);
+
+
+        thread_pool.Sending_To_Processing(&task1);
+        thread_pool.Sending_To_Processing(&task2);
+        thread_pool.Sending_To_Processing(&task3);
+        thread_pool.Sending_To_Processing(&task4);
+
+        task1.Wait_Completed();
+        task2.Wait_Completed();
+        task3.Wait_Completed();
+        task4.Wait_Completed(); 
+
+        
+        Int_Number P1(Mod998244353::MOD);
+        Int_Number P2(Mod1004535809::MOD);
+        Int_Number P3(Mod469762049::MOD);
+        Int_Number P4(Mod167772161::MOD);
+        Int_Number M12 = P1 * P2;
+        Int_Number M123 = M12 * P3;
+        Int_Number M1234 = M123 * P4;
+        
+        long long int inv_P1_mod_P2 = Mod_Num_<Mod998244353>::modpow(Mod998244353::MOD % Mod1004535809::MOD, Mod1004535809::MOD - 2, Mod1004535809::MOD);
+        long long int inv_M12_mod_P3 = Mod_Num_<Mod998244353>::modpow((1LL * Mod998244353::MOD * Mod1004535809::MOD) % Mod469762049::MOD, Mod469762049::MOD - 2, Mod469762049::MOD);
+        long long int inv_M123_mod_P4 = Mod_Num_<Mod998244353>::modpow(130839182, Mod167772161::MOD - 2, Mod167772161::MOD);
+        //130839182 посчитано руками (переполнение)
+
+        
+        Int_Number FinalResult(ptr_head + Nu.ptr_head + (plt_tail + Nu.plt_tail)/20 - (plt_tail + Nu.plt_tail) + 3, (plt_tail + Nu.plt_tail)/20);
+        FinalResult.sign_plus = this -> sign_plus == Nu.sign_plus;
+
+        
+        int count_thread_in_pool = thread_pool.Count_Worker();
+
+        void* mas_task_data[count_thread_in_pool][17];
+        long long int mas_start_count[count_thread_in_pool][2];
+        Int_Number mas_int_number[count_thread_in_pool];
+        Task mas_task[count_thread_in_pool];
+
+        int Block_to_task = (1 << power_2) / count_thread_in_pool;
+        int Block_to_task_over = (1 << power_2) % count_thread_in_pool;
+
+        for(int i = 0; i < Block_to_task_over; i++){
+            mas_start_count[i][0] = i * (Block_to_task + 1);
+            mas_start_count[i][1] = Block_to_task + 1;
+        }
+        for(int i = 0; i < count_thread_in_pool - Block_to_task_over; i++){
+            mas_start_count[i + Block_to_task_over][0] = i * Block_to_task + Block_to_task_over * (Block_to_task + 1);
+            mas_start_count[i + Block_to_task_over][1] = Block_to_task;
+        }
+
+
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task_data[i][0] = &Nu1_MOD1;
+            mas_task_data[i][1] = &Nu1_MOD2;
+            mas_task_data[i][2] = &Nu1_MOD3;
+            mas_task_data[i][3] = &Nu1_MOD4;
+
+            mas_task_data[i][4] = &mas_start_count[i][0];
+            mas_task_data[i][5] = &mas_start_count[i][1];
+
+            mas_task_data[i][6] = &P1;
+            mas_task_data[i][7] = &P2;
+            mas_task_data[i][8] = &P3;
+            mas_task_data[i][9] = &P4;
+            mas_task_data[i][10] = &M12;
+            mas_task_data[i][11] = &M123;
+            mas_task_data[i][12] = &M1234;
+
+            mas_task_data[i][13] = &inv_P1_mod_P2;
+            mas_task_data[i][14] = &inv_M12_mod_P3;
+            mas_task_data[i][15] = &inv_M123_mod_P4;
+
+            mas_task_data[i][16] = &mas_int_number[i];
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Move_To(Task(&__local_CRT__4_Outward_Bypass, mas_task_data[i]));
+            thread_pool.Sending_To_Processing(&mas_task[i]);
+        }
+
+        for(int i = 0; i < count_thread_in_pool; i++){
+            mas_task[i].Wait_Completed();
+            
+            FinalResult.Only_Add_With_Shift_Bypass(mas_int_number[i], mas_start_count[i][0]);
         }
         
         return std::move(FinalResult);
@@ -1053,11 +1364,15 @@ Int_Number::Int_Number(Int_Number&& Nu) {
     Nu.len_num = 1;
     Nu.sign_plus = true;
 }
-Int_Number::Int_Number(const Int_Number& Nu): Int_Number(Nu.len_dedicated, Nu.plt_tail) {
+Int_Number::Int_Number(const Int_Number& Nu){
     std::lock_guard<std::mutex> lock(Nu.guard);
+    len_dedicated = Nu.len_dedicated;
     ptr_head = Nu.ptr_head;
+    plt_tail = Nu.plt_tail;
     len_num = Nu.len_num;
     sign_plus = Nu.sign_plus;
+
+    num = new int[len_dedicated];
 
     for(int i = plt_tail; i <= ptr_head; i++)
         num[i] = Nu.num[i];
@@ -1292,6 +1607,12 @@ int Int_Number::Length_Number() const{
     return len_num;
 }
 
+int Int_Number::Last_Element_Get() const{
+    std::lock_guard<std::mutex> lock(guard);
+
+    return num[plt_tail];
+}
+
 Int_Number& Abs(Int_Number& Nu) {
     std::lock_guard<std::mutex> lock(Nu.guard);
 
@@ -1415,6 +1736,8 @@ void Int_Number::operator=(const Int_Number& Nu) {
     std::scoped_lock lock(guard, Nu.guard);
 
     Int_Number Nu_j(std::move(Nu.Copy_Bypass()));
+
+    delete[] this -> num;
 
     num = Nu_j.num;
     ptr_head = Nu_j.ptr_head;
@@ -1569,15 +1892,49 @@ void Int_Number::operator*=(int q) {
 void Int_Number::operator*=(const Int_Number& Nu) {
     if(this == &Nu){
         std::lock_guard<std::mutex> lock(guard);
-        if(Nu.len_num > 32*9)
-            *this = std::move(this -> Multiplication_NTT_Outward_Bypass(Nu));
+        if(Nu.len_num > 32*9){
+            Int_Number qwe(std::move(this -> Multiplication_NTT_Outward_Thread_Pool_Bypass(Nu)));
+            
+            delete[] this -> num;
+
+            num = qwe.num;
+            ptr_head = qwe.ptr_head;
+            plt_tail = qwe.plt_tail;
+            len_dedicated = qwe.len_dedicated;
+            len_num = qwe.len_num;
+            sign_plus = qwe.sign_plus;
+
+            qwe.num = nullptr;
+            qwe.ptr_head = 0;
+            qwe.plt_tail = 0;
+            qwe.len_dedicated = 0;
+            qwe.len_num = 1;
+            qwe.sign_plus = true;
+        }
         else
             this -> Multiplication_Bypass(Nu.Copy_Bypass());
     }
     else{
         std::scoped_lock lock(guard, Nu.guard);
-        if(Nu.len_num > 32*9)
-            *this = std::move(this -> Multiplication_NTT_Outward_Bypass(Nu));
+        if(Nu.len_num > 32*9){
+            Int_Number qwe(std::move(this -> Multiplication_NTT_Outward_Thread_Pool_Bypass(Nu)));
+            
+            delete[] this -> num;
+
+            num = qwe.num;
+            ptr_head = qwe.ptr_head;
+            plt_tail = qwe.plt_tail;
+            len_dedicated = qwe.len_dedicated;
+            len_num = qwe.len_num;
+            sign_plus = qwe.sign_plus;
+
+            qwe.num = nullptr;
+            qwe.ptr_head = 0;
+            qwe.plt_tail = 0;
+            qwe.len_dedicated = 0;
+            qwe.len_num = 1;
+            qwe.sign_plus = true;
+        }
         else
             this -> Multiplication_Bypass(Nu);
     }
@@ -1595,7 +1952,7 @@ Int_Number Int_Number::operator*(const Int_Number& Nu) const {
         std::lock_guard<std::mutex> lock(guard);
 
         if(Nu.len_num > 32*9)
-            return std::move(this -> Multiplication_NTT_Outward_Bypass(Nu));
+            return std::move(this -> Multiplication_NTT_Outward_Thread_Pool_Bypass(Nu));
 
         Int_Number new_nu(std::move(this -> Copy_Bypass()));
         new_nu.Multiplication_Bypass(Nu);
@@ -1605,7 +1962,7 @@ Int_Number Int_Number::operator*(const Int_Number& Nu) const {
         std::scoped_lock lock(guard, Nu.guard);
 
         if(Nu.len_num > 32*9)
-            return std::move(this -> Multiplication_NTT_Outward_Bypass(Nu));
+            return std::move(this -> Multiplication_NTT_Outward_Thread_Pool_Bypass(Nu));
             
         Int_Number new_nu(std::move(this -> Copy_Bypass()));
         new_nu.Multiplication_Bypass(Nu);
@@ -1621,6 +1978,8 @@ void Int_Number::operator/=(const Int_Number& Nu) {
     if(this == &Nu){
         std::lock_guard<std::mutex> lock(guard);
         Int_Number Q(1);
+
+        delete[] this -> num;
 
         num = Q.num;
         ptr_head = Q.ptr_head;
@@ -1654,6 +2013,8 @@ void Int_Number::operator/=(const Int_Number& Nu) {
 
     Q *= plus;
 
+    delete[] this -> num;
+
     num = Q.num;
     ptr_head = Q.ptr_head;
     plt_tail = Q.plt_tail;
@@ -1675,6 +2036,8 @@ void Int_Number::operator%=(const Int_Number& Nu) {
     if(this == &Nu){
         std::lock_guard<std::mutex> lock(guard);
         Int_Number Q(0);
+
+        delete[] this -> num;
 
         num = Q.num;
         ptr_head = Q.ptr_head;
@@ -1705,6 +2068,8 @@ void Int_Number::operator%=(const Int_Number& Nu) {
 
 
     Division_NOT_Bypass(Abs(R), Abs(Nu2), Q);
+
+    delete[] this -> num;
 
     num = R.num;
     ptr_head = R.ptr_head;
@@ -1764,8 +2129,6 @@ Int_Number Int_Number::operator%(const Int_Number& Nu) const {
         plus = -1;
 
     Division_NOT_Bypass(Abs(R), Abs(Nu2), Q);
-
-    R *= plus;
 
     return std::move(R);
 }
